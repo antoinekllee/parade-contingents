@@ -60,7 +60,7 @@ def allocate_contingents(
 
     # 4) Constraints
 
-    # 4a) Capacity: sum_i x[i,c] <= capacity
+    # 4a) Capacity: Each contingent can't exceed the target size (sum_i x[i,c] <= capacity)
     for c in range(max_contingents):
         solver.Add(
             sum(x[(i, c)] for i in range(N)) <= capacity * z[c]
@@ -95,6 +95,9 @@ def allocate_contingents(
     # We'll do it with solver.Sum(...) to avoid the "SetCoefficient" limitations.
 
     objective_terms = []
+    # The solver tries to minimize two things: 
+    # 1) Underfilling: Having contingents smaller than the capacity (weighted by alpha)
+    # 2) Mixing: Having multiple groups in a contingent (weighted by beta)
     for c in range(max_contingents):
         # underfill_c
         underfill_c = capacity * z[c] - solver.Sum([x[(i, c)] for i in range(N)])
