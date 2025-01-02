@@ -1,6 +1,7 @@
 from ortools.linear_solver import pywraplp
 import csv
 from datetime import datetime
+import math
 
 def allocate_contingents(
     group_sizes,
@@ -130,7 +131,44 @@ def allocate_contingents(
     return contingents, solver.Objective().Value()
 
 
+def create_contingent_ascii(total_people, row_size=5):
+    columns = math.ceil(total_people / row_size)
+
+    total_grid_size = row_size * columns
+    missing = total_grid_size - total_people
+    
+    seats = [[True for _ in range(columns)] for _ in range(row_size)]
+    
+    if missing > 0:
+        col_to_remove = 1
+        seats_removed = 0
+        
+        while seats_removed < missing and col_to_remove < columns:
+            # go from bottom row=4 (index=4) up to top row=0
+            for row in range(row_size-1, -1, -1):
+                if seats_removed >= missing:
+                    break  # we've removed all we need
+                # remove this seat (row, col_to_remove)
+                seats[row][col_to_remove] = False
+                seats_removed += 1
+            col_to_remove += 1
+    
+    result = []
+    for row in range(row_size):
+        row_str = []
+        for col in range(columns):
+            if seats[row][col]:
+                row_str.append("x")
+            else:
+                row_str.append(" ")
+        # Join them with a space
+        result.append(" ".join(row_str))
+    
+    return "\n".join(result)
+
 def main():
+    contingent_row_size = 5
+    
     group_sizes = { 
         'Inf (1)': 127,
         'Navy': 77,
@@ -184,6 +222,7 @@ def main():
         groups_list = ", ".join(f"{g}:{n}" for g, n in cont.items())
         print(f"Contingent #{idx}: total={total_in_cont}, #groups={letters_used}")
         print(f"   -> {groups_list}")
+        print(f"\nFormation:\n{create_contingent_ascii(total_in_cont, contingent_row_size)}\n")
         grand_total_assigned += total_in_cont
 
     print("\n-----------------------------------------")
