@@ -130,7 +130,6 @@ def allocate_contingents(
 
     return contingents, solver.Objective().Value()
 
-
 def create_contingent_ascii(total_people, row_size=5):
     columns = math.ceil(total_people / row_size)
 
@@ -164,6 +163,59 @@ def create_contingent_ascii(total_people, row_size=5):
         # Join them with a space
         result.append(" ".join(row_str))
     
+    return "\n".join(result)
+
+def create_parade_formation(contingents, contingent_row_size=5, capacity=90):
+    contingent_displays = []
+    for idx, cont in enumerate(contingents, start=1):
+        total_in_cont = sum(cont.values())
+        capacity_diff = abs(capacity - total_in_cont)
+        
+        formation = create_contingent_ascii(total_in_cont, contingent_row_size)
+
+        composition = ", ".join(f"{n} {g}" for g, n in cont.items())
+        header = f"C{idx} ({composition})"
+        
+        contingent_displays.append((capacity_diff, idx, header + "\n" + formation))
+    
+    contingent_displays.sort(key=lambda x: x[0])
+    sorted_displays = [x[2] for x in contingent_displays]
+
+    first_row_count = (len(contingents) + 1) // 2
+    first_row = sorted_displays[:first_row_count]
+    second_row = sorted_displays[first_row_count:]
+
+    first_row_lines = [display.split('\n') for display in first_row]
+    second_row_lines = [display.split('\n') for display in second_row]
+
+    result = []
+    
+    # First row
+    for line_idx in range(max(len(x) for x in first_row_lines)):
+        line_parts = []
+        for formation in first_row_lines:
+            if line_idx < len(formation):
+                line_parts.append(formation[line_idx].rjust(50))
+            else:
+                line_parts.append(" " * 50)
+
+        combined_line = "".join(line_parts).lstrip()
+        result.append(combined_line)
+    
+    result.append("")
+    
+    # Second row
+    for line_idx in range(max(len(x) for x in second_row_lines)):
+        line_parts = []
+        for formation in second_row_lines:
+            if line_idx < len(formation):
+                line_parts.append(formation[line_idx].rjust(50))
+            else:
+                line_parts.append(" " * 50)
+
+        combined_line = "".join(line_parts).lstrip()
+        result.append(combined_line)
+
     return "\n".join(result)
 
 def main():
@@ -222,7 +274,7 @@ def main():
         groups_list = ", ".join(f"{g}:{n}" for g, n in cont.items())
         print(f"Contingent #{idx}: total={total_in_cont}, #groups={letters_used}")
         print(f"   -> {groups_list}")
-        print(f"\nFormation:\n{create_contingent_ascii(total_in_cont, contingent_row_size)}\n")
+        # print(f"\nFormation:\n{create_contingent_ascii(total_in_cont, contingent_row_size)}\n")
         grand_total_assigned += total_in_cont
 
     print("\n-----------------------------------------")
@@ -267,6 +319,14 @@ def main():
         writer.writerow(['All Members Assigned', 'Yes' if True else 'No'])
 
     print("\nResults have been saved to:", csv_filename)
+
+    formation = create_parade_formation(contingents, contingent_row_size, capacity)
+    
+    # Write formation to file
+    with open('output/formation.txt', 'w') as f:
+        f.write(formation)
+    
+    print("\nFormation has been saved to: output/formation.txt")
 
 if __name__ == "__main__":
     main()
