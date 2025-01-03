@@ -13,9 +13,17 @@ def allocate_contingents(
 ):
     """
     Solve the parade allocation problem using an Integer Linear Program (ILP) with OR-Tools.
-
+    Certain groups may be pre-chunked into their own full or partial contingents if marked with a special flag (e.g., 'avoid_split' = True).
+    
     Args:
-        group_sizes (dict): {group_label: number_of_people}, e.g. {'A':127, 'B':77, ...}.
+        group_sizes (dict): A dict of the form:
+            {
+                'GroupName': {
+                    'size': <int>,
+                    'avoid_split': <bool>
+                },
+                ...
+            }
         capacity (int): Target max size for each contingent (e.g. 90).
         alpha (float): Weight for penalizing underfilled seats (capacity - sum of x).
         beta (float): Weight for penalizing mixing (number of distinct groups in a contingent).
@@ -27,13 +35,49 @@ def allocate_contingents(
          - contingents: a list of dicts, each {group_label: count_assigned}.
          - objective_value: the optimized objective value (lower is better).
     """
-    # 1) Prepare data
-    groups = list(group_sizes.keys())
-    N = len(groups)
-    A = [group_sizes[g] for g in groups]
+    # 1) Pre-allocate contingents for groups marked "avoid_split"
+    pre_allocated_contingents = []
+    remaining_group_sizes = {}
+
+    for g, info in group_sizes.items():
+        group_count = info["size"]
+        avoid_split = info.get("avoid_split", False)
+
+        if avoid_split and group_count > 0:
+            # Create as many full contingents of 'capacity' as we can
+            while group_count >= capacity:
+                pre_allocated_contingents.append({g: capacity})
+                group_count -= capacity
+            
+            # If there's a leftover smaller than capacity
+            if group_count > 0:
+                # That leftover portion still needs to be allocated by the solver
+                remaining_group_sizes[g] = group_count
+        else:
+            # If not avoid_split or group_count==0, 
+            # just feed the entire group_count to the solver.
+            remaining_group_sizes[g] = group_count
+
+    # If user wants a fixed number of contingents, subtract out the contingents we already used from pre_allocated_contingents
+    if fix_num_contingents is not None:
+        used_pre = len(pre_allocated_contingents)
+        # Ensure the solver doesn't go negative in how many it can create:
+        fix_num_contingents = max(0, fix_num_contingents - used_pre)
+
+    # 2) ILP on the leftover group sizes
+
+    # Make an easy list of groups and their sizes
+    groups = list(remaining_group_sizes.keys())
+    A = [remaining_group_sizes[g] for g in groups]
     total_people = sum(A)
 
-    # Estimate upper bound on # of contingents
+    # If everything was pre-allocated (i.e. total_people=0), 
+    # then just return the pre-allocated contingents and 0 objective
+    if total_people == 0:
+        return pre_allocated_contingents, 0
+
+    N = len(groups)
+    # Provide a small buffer on max number of contingents
     max_contingents = (total_people // capacity) + 3
 
     # 2) Create the solver
@@ -116,7 +160,7 @@ def allocate_contingents(
         raise Exception("No feasible solution found by the solver.")
 
     # 7) Extract solution
-    contingents = []
+    solver_contingents = []
     for c in range(max_contingents):
         assigned_sum = sum(int(x[(i, c)].solution_value()) for i in range(N))
         if assigned_sum == 0:
@@ -126,9 +170,12 @@ def allocate_contingents(
             val = int(x[(i, c)].solution_value())
             if val > 0:
                 cont_dict[groups[i]] = val
-        contingents.append(cont_dict)
+        solver_contingents.append(cont_dict)
 
-    return contingents, solver.Objective().Value()
+    # Combine pre-allocated with solver's results
+    all_contingents = pre_allocated_contingents + solver_contingents
+
+    return all_contingents, solver.Objective().Value()
 
 def create_contingent_ascii(total_people, row_size=5):
     columns = math.ceil(total_people / row_size)
@@ -221,26 +268,62 @@ def create_parade_formation(contingents, contingent_row_size=5, capacity=90):
 def main():
     contingent_row_size = 5
     
-    group_sizes = { 
-        'Inf (1)': 127,
-        'Navy': 77,
-        'Air Force': 30,
-        'DIS': 112,
-        'IDTI': 86,
-        'CSSCOM': 135,
-        'ETI': 117,
-        'AI': 12,
-        'ATI': 44,
-        'SI': 107,
-        'SMI-I': 46,
-        'Inf (2)': 113,
+    group_sizes = {
+        'Inf (1)':  {
+            'size': 127,
+            'avoid_split': True
+        },
+        'Inf (2)':  {
+            'size': 113,
+            'avoid_split': True
+        },
+        'Navy':     {
+            'size': 77,
+            'avoid_split': True
+        },
+        'Air Force': {
+            'size': 30,
+            'avoid_split': False
+        },
+        'DIS':      {
+            'size': 112,
+            'avoid_split': False
+        },
+        'IDTI':     {
+            'size': 86,
+            'avoid_split': False
+        },
+        'CSSCOM':   {
+            'size': 135,
+            'avoid_split': False
+        },
+        'ETI':      {
+            'size': 117,
+            'avoid_split': False
+        },
+        'AI':       {
+            'size': 12,
+            'avoid_split': False
+        },
+        'ATI':      {
+            'size': 44,
+            'avoid_split': False
+        },
+        'SI':       {
+            'size': 107,
+            'avoid_split': False
+        },
+        'SMI-I':    {
+            'size': 46,
+            'avoid_split': False
+        }
     }
     capacity = 90 # Target max size for each contingent
-    total_people = sum(group_sizes.values()) # Total number of people to assign
+    total_people = sum(info["size"] for info in group_sizes.values()) # Total number of people to assign
 
     # Objective weighting
     alpha = 1.0 # Penalizes undersized contingents
-    beta = 5.0 # Penalizes mixing of different groups
+    beta = 500.0 # Penalizes mixing of different groups
 
     fix_num_contingents = 12 # Exactly 12 contingents
 
