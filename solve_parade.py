@@ -13,7 +13,10 @@ def allocate_contingents(
 ):
     """
     Solve the parade allocation problem using an Integer Linear Program (ILP) with OR-Tools.
-    Certain groups may be pre-chunked into their own full or partial contingents if marked with a special flag (e.g., 'avoid_split' = True).
+    Certain groups may be pre-chunked into their own full or partial contingents if marked 
+    with a special flag (e.g., 'avoid_split' = True).
+    
+    Additionally, if 'avoid_split' is True AND a group's size is less than 'capacity', that group is forced to occupy exactly one contingent, and that contingent must be completely filled (i.e., equal to capacity).
     
     Args:
         group_sizes (dict): A dict of the form:
@@ -129,16 +132,41 @@ def allocate_contingents(
         for c in range(max_contingents):
             solver.Add(x[(i, c)] <= BIG_M * y[(i, c)])
 
-    # 4d) If we fix the total # of contingents used, sum_c z[c] = fix_num_contingents
+    # 4d) If we fix the total # of contingents, sum_c z[c] = fix_num_contingents
     if fix_num_contingents is not None:
         solver.Add(solver.Sum([z[c] for c in range(max_contingents)]) == fix_num_contingents)
 
-    # 5) Build the objective expression
-    # We'll sum over c of [ alpha * underfill_c + beta * mixing_c ], where:
-    #   underfill_c = (capacity - sum_i x[i,c]) if z[c] = 1, else 0
-    #   mixing_c = sum_i y[i,c]
-    # We'll do it with solver.Sum(...) to avoid the "SetCoefficient" limitations.
+    # 4e) If avoid_split=True AND size < capacity, then that group must occupy exactly 1 contingent and that contingent is fully 90 (capacity).
+    for i in range(N):
+        g_name = groups[i]
+        original_size = group_sizes[g_name]["size"]
+        avoid_split = group_sizes[g_name].get("avoid_split", False)
 
+        print ("Checking group at i=", i)
+        print ("> ", g_name)
+        print ("> ", original_size)
+        print ("> ", avoid_split)
+        print ("> Adding constraint: ", (avoid_split and original_size < capacity))
+
+        if avoid_split and original_size < capacity:
+            # Force this group to appear in exactly one contingent
+            solver.Add(solver.Sum([y[(i, c)] for c in range(max_contingents)]) == 1)
+            
+            # Whichever contingent c is chosen for this group must be exactly capacity
+            for c in range(max_contingents):
+                # solver.Add(
+                #     solver.Sum(x[(i_prime, c)] for i_prime in range(N))
+                #     == capacity * y[(i, c)]
+                # )
+                solver.Add(
+                    solver.Sum(x[(i_prime, c)] for i_prime in range(N)) 
+                    >= capacity * y[(i, c)]
+                )
+
+    # 5) Objective
+    # Minimize [ alpha * underfill_c + beta * mixing_c ]
+    #   underfill_c = capacity - sum_i x[i,c] for each used c
+    #   mixing_c = sum_i y[i,c] (# distinct groups in c)
     objective_terms = []
     # The solver tries to minimize two things: 
     # 1) Underfilling: Having contingents smaller than the capacity (weighted by alpha)
@@ -283,11 +311,11 @@ def main():
         },
         'Air Force': {
             'size': 30,
-            'avoid_split': False
+            'avoid_split': True
         },
         'DIS':      {
             'size': 112,
-            'avoid_split': False
+            'avoid_split': True
         },
         'IDTI':     {
             'size': 86,
@@ -318,7 +346,7 @@ def main():
             'avoid_split': False
         }
     }
-    capacity = 90 # Target max size for each contingent
+    capacity = 85 # Target max size for each contingent
     total_people = sum(info["size"] for info in group_sizes.values()) # Total number of people to assign
 
     # Objective weighting
