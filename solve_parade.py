@@ -323,7 +323,7 @@ def main():
 
     # Objective weighting
     alpha = 1.0 # Penalizes undersized contingents
-    beta = 500.0 # Penalizes mixing of different groups
+    beta = 5.0 # Penalizes mixing of different groups
 
     fix_num_contingents = 12 # Exactly 12 contingents
 
