@@ -1,0 +1,27 @@
+Parade Allocation Results
+Generated on,060125 07:51
+
+Total People,1006
+Contingent Capacity,85
+Objective Value,99.00
+Alpha,1.0
+Beta,5.0
+
+Contingent #,Total People,Group Assignments,Number of Groups
+1,85,Inf (1):85,1
+2,85,Inf (2):85,1
+3,85,DIS:85,1
+4,85,SI:85,1
+5,85,"Inf (2):7, ETI:78",2
+6,85,"Navy:77, IDTI:8",2
+7,85,"Inf (1):42, Inf (2):21, SI:22",3
+8,85,"ETI:39, SMI-I:46",2
+9,83,"DIS:27, AI:12, ATI:44",3
+10,80,"Air Force:30, CSSCOM:50",2
+11,78,IDTI:78,1
+12,85,CSSCOM:85,1
+
+Summary Statistics
+Total Contingents Used,12
+Total People Assigned,1006
+All Members Assigned,Yes

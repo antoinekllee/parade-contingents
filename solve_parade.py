@@ -6,6 +6,7 @@ import math
 def allocate_contingents(
     group_sizes,
     capacity,
+    contingent_row_size=5,
     alpha=1.0,
     beta=5.0,
     use_all=True,
@@ -28,6 +29,7 @@ def allocate_contingents(
                 ...
             }
         capacity (int): Target max size for each contingent (e.g. 90).
+        contingent_row_size (int): Number of rows in each contingent (default=5). Used to calculate acceptable partial contingent sizes.
         alpha (float): Weight for penalizing underfilled seats (capacity - sum of x).
         beta (float): Weight for penalizing mixing (number of distinct groups in a contingent).
         use_all (bool): If True, forces all group members to be used. If False, allows partial usage.
@@ -136,32 +138,39 @@ def allocate_contingents(
     if fix_num_contingents is not None:
         solver.Add(solver.Sum([z[c] for c in range(max_contingents)]) == fix_num_contingents)
 
-    # 4e) If avoid_split=True AND size < capacity, then that group must occupy exactly 1 contingent and that contingent is fully 90 (capacity).
+    # 4e) If avoid_split=True AND size < capacity, then that group must occupy exactly 1 contingent. In that chosen contingent, the total assigned is forced to be a multiple of contingent_row_size=5.
+
+    # We'll need a dictionary "m" to hold the new integer variables:
+    m = {}
+
     for i in range(N):
         g_name = groups[i]
         original_size = group_sizes[g_name]["size"]
         avoid_split = group_sizes[g_name].get("avoid_split", False)
 
-        print ("Checking group at i=", i)
-        print ("> ", g_name)
-        print ("> ", original_size)
-        print ("> ", avoid_split)
-        print ("> Adding constraint: ", (avoid_split and original_size < capacity))
-
         if avoid_split and original_size < capacity:
             # Force this group to appear in exactly one contingent
             solver.Add(solver.Sum([y[(i, c)] for c in range(max_contingents)]) == 1)
             
-            # Whichever contingent c is chosen for this group must be exactly capacity
             for c in range(max_contingents):
-                # solver.Add(
-                #     solver.Sum(x[(i_prime, c)] for i_prime in range(N))
-                #     == capacity * y[(i, c)]
-                # )
+                # Create an integer variable m_{i,c} for enforcing multiples of 5
+                m[(i, c)] = solver.IntVar(0, capacity, f"m_{i}_{c}")
+
+                # sum_c is the total # of people in contingent c
+                sum_c = solver.Sum(x[(i_prime, c)] for i_prime in range(N))
+
+                # Big-M approach:
+                # If y_{(i,c)}=1, then sum_c = 5 * m_{(i,c)}.
+                # If y_{(i,c)}=0, no restriction is imposed (sum_c - 5*m_{(i,c)} can be anything).
+                BIG_M_2 = capacity  # Enough to cover all feasible sums
+
                 solver.Add(
-                    solver.Sum(x[(i_prime, c)] for i_prime in range(N)) 
-                    >= capacity * y[(i, c)]
+                    sum_c - contingent_row_size * m[(i, c)] <= BIG_M_2 * (1 - y[(i, c)])
                 )
+                solver.Add(
+                    sum_c - contingent_row_size * m[(i, c)] >= -BIG_M_2 * (1 - y[(i, c)])
+                )
+
 
     # 5) Objective
     # Minimize [ alpha * underfill_c + beta * mixing_c ]
@@ -358,6 +367,7 @@ def main():
     contingents, obj_val = allocate_contingents(
         group_sizes=group_sizes,
         capacity=capacity,
+        contingent_row_size=contingent_row_size,
         alpha=alpha,
         beta=beta,
         use_all=True,
