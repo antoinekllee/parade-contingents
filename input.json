@@ -1,0 +1,23 @@
+{
+    "contingent_row_size": 5,
+    "capacity": 85,
+    "strict_min_capacity": 70,
+    "group_sizes": {
+        "Inf (1)": {"size": 127, "avoid_split": true},
+        "Inf (2)": {"size": 113, "avoid_split": true},
+        "Navy": {"size": 77, "avoid_split": true},
+        "Air Force": {"size": 30, "avoid_split": true},
+        "DIS": {"size": 112, "avoid_split": true},
+        "IDTI": {"size": 86, "avoid_split": false},
+        "CSSCOM": {"size": 135, "avoid_split": false},
+        "ETI": {"size": 117, "avoid_split": false},
+        "AI": {"size": 12, "avoid_split": false},
+        "ATI": {"size": 44, "avoid_split": false},
+        "SI": {"size": 107, "avoid_split": false},
+        "SMI-I": {"size": 46, "avoid_split": false}
+    },
+    "alpha": 1.0,
+    "beta": 5.0,
+    "fix_num_contingents": 12,
+    "time_limit": 60
+}

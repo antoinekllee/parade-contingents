@@ -1,0 +1,51 @@
+Parade Allocation Results
+Generated on,060125 08:12
+
+Input Parameters
+Parameter,Value
+Contingent Row Size,5
+Contingent Capacity,85
+Strict Minimum Capacity,70
+Alpha (underfill penalty),1.0
+Beta (mixing penalty),5.0
+Fixed Number of Contingents,12
+Solver Time Limit (seconds),60
+
+Input Group Sizes
+Group,Size,Avoid Split
+Inf (1),127,True
+Inf (2),113,True
+Navy,77,True
+Air Force,30,True
+DIS,112,True
+IDTI,86,False
+CSSCOM,135,False
+ETI,117,False
+AI,12,False
+ATI,44,False
+SI,107,False
+SMI-I,46,False
+
+Results Summary
+Total People,1006
+Objective Value,99.00
+
+Contingent Details
+Contingent #,Total People,Group Assignments,Number of Groups
+1,85,Inf (1):85,1
+2,85,Inf (2):85,1
+3,85,DIS:85,1
+4,85,"IDTI:21, SI:64",2
+5,85,"Air Force:30, CSSCOM:55",2
+6,85,"Inf (2):20, IDTI:65",2
+7,76,"ETI:32, ATI:44",2
+8,85,"Inf (2):8, Navy:77",2
+9,85,"Inf (1):42, SI:43",2
+10,80,CSSCOM:80,1
+11,85,"DIS:27, AI:12, SMI-I:46",3
+12,85,ETI:85,1
+
+Summary Statistics
+Total Contingents Used,12
+Total People Assigned,1006
+All Members Assigned,Yes

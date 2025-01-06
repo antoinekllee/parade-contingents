@@ -2,15 +2,61 @@ from ortools.linear_solver import pywraplp
 import csv
 from datetime import datetime
 import math
+import json
+from pathlib import Path
+
+def load_config():
+    """Load configuration from input.json if it exists, otherwise return defaults."""
+    defaults = {
+        "contingent_row_size": 5,
+        "capacity": 90,
+        "strict_min_capacity": 70,
+        "group_sizes": {
+            'Inf (1)':  {'size': 127, 'avoid_split': True},
+            'Inf (2)':  {'size': 113, 'avoid_split': True},
+            'Navy':     {'size': 77, 'avoid_split': True},
+            'Air Force': {'size': 30, 'avoid_split': True},
+            'DIS':      {'size': 112, 'avoid_split': True},
+            'IDTI':     {'size': 86, 'avoid_split': False},
+            'CSSCOM':   {'size': 135, 'avoid_split': False},
+            'ETI':      {'size': 117, 'avoid_split': False},
+            'AI':       {'size': 12, 'avoid_split': False},
+            'ATI':      {'size': 44, 'avoid_split': False},
+            'SI':       {'size': 107, 'avoid_split': False},
+            'SMI-I':    {'size': 46, 'avoid_split': False}
+        },
+        "alpha": 1.0,
+        "beta": 10.0,
+        "fix_num_contingents": 12,
+        "time_limit": 60
+    }
+
+    try:
+        config_path = Path("input.json")
+        if config_path.exists():
+            with open(config_path, 'r') as f:
+                config = json.load(f)
+                # Update defaults with any values from the JSON file
+                defaults.update(config)
+                print("Configuration loaded from input.json")
+        else:
+            print("No input.json found, using default values")
+    except Exception as e:
+        print(f"Error reading input.json: {e}")
+        print("Using default values")
+
+    return defaults
 
 def allocate_contingents(
     group_sizes,
     capacity,
+    strict_min_capacity,
     contingent_row_size=5,
     alpha=1.0,
     beta=5.0,
     use_all=True,
-    fix_num_contingents=None
+    fix_num_contingents=None,
+    time_limit=60
 ):
     """
     Solve the parade allocation problem using an Integer Linear Program (ILP) with OR-Tools.
@@ -89,6 +135,8 @@ def allocate_contingents(
     solver = pywraplp.Solver.CreateSolver('SCIP')
     if not solver:
         raise Exception("Could not create the OR-Tools solver.")
+    
+    solver.SetTimeLimit(time_limit * 1000)  # 30 seconds
 
     # 3) Decision variables
     # x[i,c] = # of people from group i in contingent c
@@ -171,6 +219,11 @@ def allocate_contingents(
                     sum_c - contingent_row_size * m[(i, c)] >= -BIG_M_2 * (1 - y[(i, c)])
                 )
 
+    # 4f) Enforce minimum capacity for each used contingent
+    for c in range(max_contingents):
+        solver.Add(
+            sum(x[(i, c)] for i in range(N)) >= strict_min_capacity * z[c]
+        )
 
     # 5) Objective
     # Minimize [ alpha * underfill_c + beta * mixing_c ]
@@ -303,75 +356,31 @@ def create_parade_formation(contingents, contingent_row_size=5, capacity=90):
     return "\n".join(result)
 
 def main():
-    contingent_row_size = 5
+    # Load configuration
+    config = load_config()
     
-    group_sizes = {
-        'Inf (1)':  {
-            'size': 127,
-            'avoid_split': True
-        },
-        'Inf (2)':  {
-            'size': 113,
-            'avoid_split': True
-        },
-        'Navy':     {
-            'size': 77,
-            'avoid_split': True
-        },
-        'Air Force': {
-            'size': 30,
-            'avoid_split': True
-        },
-        'DIS':      {
-            'size': 112,
-            'avoid_split': True
-        },
-        'IDTI':     {
-            'size': 86,
-            'avoid_split': False
-        },
-        'CSSCOM':   {
-            'size': 135,
-            'avoid_split': False
-        },
-        'ETI':      {
-            'size': 117,
-            'avoid_split': False
-        },
-        'AI':       {
-            'size': 12,
-            'avoid_split': False
-        },
-        'ATI':      {
-            'size': 44,
-            'avoid_split': False
-        },
-        'SI':       {
-            'size': 107,
-            'avoid_split': False
-        },
-        'SMI-I':    {
-            'size': 46,
-            'avoid_split': False
-        }
-    }
-    capacity = 85 # Target max size for each contingent
-    total_people = sum(info["size"] for info in group_sizes.values()) # Total number of people to assign
+    # Extract values from config
+    contingent_row_size = config["contingent_row_size"]
+    capacity = config["capacity"]
+    strict_min_capacity = config["strict_min_capacity"]
+    group_sizes = config["group_sizes"]
+    alpha = config["alpha"]
+    beta = config["beta"]
+    fix_num_contingents = config["fix_num_contingents"]
+    time_limit = config["time_limit"]
 
-    # Objective weighting
-    alpha = 1.0 # Penalizes undersized contingents
-    beta = 5.0 # Penalizes mixing of different groups
-
-    fix_num_contingents = 12 # Exactly 12 contingents
+    total_people = sum(info["size"] for info in group_sizes.values())
 
     contingents, obj_val = allocate_contingents(
         group_sizes=group_sizes,
         capacity=capacity,
+        strict_min_capacity=strict_min_capacity,
         contingent_row_size=contingent_row_size,
         alpha=alpha,
         beta=beta,
         use_all=True,
-        fix_num_contingents=fix_num_contingents
+        fix_num_contingents=fix_num_contingents,
+        time_limit=time_limit
     )
 
     # Print results
@@ -415,24 +424,44 @@ def main():
         writer.writerow(['Parade Allocation Results'])
         writer.writerow(['Generated on', datetime.now().strftime("%d%m%y %H:%M")])
         writer.writerow([])
-        writer.writerow(['Total People', total_people])
+        
+        # Write input parameters
+        writer.writerow(['Input Parameters'])
+        writer.writerow(['Parameter', 'Value'])
+        writer.writerow(['Contingent Row Size', contingent_row_size])
         writer.writerow(['Contingent Capacity', capacity])
-        writer.writerow(['Objective Value', f"{obj_val:.2f}"])
-        writer.writerow(['Alpha', alpha])
-        writer.writerow(['Beta', beta])
+        writer.writerow(['Strict Minimum Capacity', strict_min_capacity])
+        writer.writerow(['Alpha (underfill penalty)', alpha])
+        writer.writerow(['Beta (mixing penalty)', beta])
+        writer.writerow(['Fixed Number of Contingents', fix_num_contingents])
+        writer.writerow(['Solver Time Limit (seconds)', time_limit])
         writer.writerow([])
         
-        # Write contingent details header - reordered columns
+        # Write group sizes
+        writer.writerow(['Input Group Sizes'])
+        writer.writerow(['Group', 'Size', 'Avoid Split'])
+        for group, info in group_sizes.items():
+            writer.writerow([group, info['size'], info['avoid_split']])
+        writer.writerow([])
+        
+        # Write results summary
+        writer.writerow(['Results Summary'])
+        writer.writerow(['Total People', total_people])
+        writer.writerow(['Objective Value', f"{obj_val:.2f}"])
+        writer.writerow([])
+        
+        # Write contingent details header
+        writer.writerow(['Contingent Details'])
         writer.writerow(['Contingent #', 'Total People', 'Group Assignments', 'Number of Groups'])
         
-        # Write each contingent's details - reordered columns
+        # Write each contingent's details
         for idx, cont in enumerate(contingents, start=1):
             total_in_cont = sum(cont.values())
             letters_used = len(cont)
             groups_list = ", ".join(f"{g}:{n}" for g, n in cont.items())
             writer.writerow([idx, total_in_cont, groups_list, letters_used])
         
-        # Write summary
+        # Write summary statistics
         writer.writerow([])
         writer.writerow(['Summary Statistics'])
         writer.writerow(['Total Contingents Used', len(contingents)])
