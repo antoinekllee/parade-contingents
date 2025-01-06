@@ -1,7 +1,6 @@
 from ortools.linear_solver import pywraplp
 import csv
 from datetime import datetime
-import math
 import json
 from pathlib import Path
 from halo import Halo
@@ -13,7 +12,7 @@ def load_config():
     """Load configuration from input.json if it exists, otherwise return defaults."""
     defaults = {
         "contingent_row_size": 5,
-        "capacity": 90,
+        "capacity": 85,
         "strict_min_capacity": 70,
         "group_sizes": {
             'Inf (1)':  {'size': 127, 'avoid_split': True},
@@ -30,7 +29,7 @@ def load_config():
             'SMI-I':    {'size': 46, 'avoid_split': False}
         },
         "alpha": 1.0,
-        "beta": 10.0,
+        "beta": 5.0,
         "fix_num_contingents": 12,
         "time_limit": 60
     }
@@ -63,11 +62,9 @@ def allocate_contingents(
     time_limit=60
 ):
     """
-    Solve the parade allocation problem using an Integer Linear Program (ILP) with OR-Tools.
-    Certain groups may be pre-chunked into their own full or partial contingents if marked 
-    with a special flag (e.g., 'avoid_split' = True).
+    Solve the parade allocation problem using an Integer Linear Program (ILP) with OR-Tools. Certain groups may be pre-chunked into their own full or partial contingents if marked with a special flag (e.g., 'avoid_split' = True).
     
-    Additionally, if 'avoid_split' is True AND a group's size is less than 'capacity', that group is forced to occupy exactly one contingent, and that contingent must be completely filled (i.e., equal to capacity).
+    Additionally, if 'avoid_split' is True AND a group's size is less than 'capacity', that group is forced to occupy exactly one contingent, and that contingent must be completely filled (i.e., equal to capacity) given a multiple of contingent_row_size.
     
     Args:
         group_sizes (dict): A dict of the form:
@@ -78,7 +75,7 @@ def allocate_contingents(
                 },
                 ...
             }
-        capacity (int): Target max size for each contingent (e.g. 90).
+        capacity (int): Target max size for each contingent (e.g. 85).
         contingent_row_size (int): Number of rows in each contingent (default=5). Used to calculate acceptable partial contingent sizes.
         alpha (float): Weight for penalizing underfilled seats (capacity - sum of x).
         beta (float): Weight for penalizing mixing (number of distinct groups in a contingent).
@@ -96,17 +93,16 @@ def allocate_contingents(
     
     # Thread function to update spinner text
     def update_time():
-        while spinner.spinner_id:  # Runs while spinner is active
+        while spinner.spinner_id: # while spinner active
             elapsed = time.time() - start_time
             spinner.text = f"{current_message[0]} ({elapsed:.2f}s)"
-            time.sleep(0.1)  # Update 10 times per second
+            time.sleep(0.1) 
     
     # Update spinner message (without affecting the time update)
     def update_spinner(message):
         current_message[0] = message
     
     spinner.start()
-    # Start the update thread
     update_thread = Thread(target=update_time, daemon=True)
     update_thread.start()
 
@@ -178,15 +174,15 @@ def allocate_contingents(
         print(colored(f"     ✓ Solver created ({elapsed:.2f}s)", 'green'))
         
         update_spinner('Creating decision variables...')
+
         # Decision variables
         # x[i,c] = # of people from group i in contingent c
         # y[i,c] = 1 if group i is used in contingent c (x[i,c] > 0)
+        # z[c] = 1 if contingent c is actually used (i.e., sum_i x[i,c] > 0), else 0
         x = {}
         y = {}
-        BIG_M = capacity
-
-        # z[c] = 1 if contingent c is actually used (i.e., sum_i x[i,c] > 0), else 0
         z = {}
+        BIG_M = capacity
 
         for c in range(max_contingents):
             z[c] = solver.BoolVar(f"z_{c}")
@@ -205,15 +201,11 @@ def allocate_contingents(
         # Constraints
         # 4a) Capacity: Each contingent can't exceed the target size (sum_i x[i,c] <= capacity)
         for c in range(max_contingents):
-            solver.Add(
-                sum(x[(i, c)] for i in range(N)) <= capacity * z[c]
-            )
+            solver.Add(sum(x[(i, c)] for i in range(N)) <= capacity * z[c])
 
         # Also ensure if z[c] = 1, sum_i x[i,c] >= 1 (so the contingent can't be "used" if it's empty)
         for c in range(max_contingents):
-            solver.Add(
-                sum(x[(i, c)] for i in range(N)) >= z[c]
-            )
+            solver.Add(sum(x[(i, c)] for i in range(N)) >= z[c])
 
         # 4b) Each group's total usage
         for i in range(N):
@@ -233,7 +225,7 @@ def allocate_contingents(
 
         # 4e) If avoid_split=True AND size < capacity, then that group must occupy exactly 1 contingent. In that chosen contingent, the total assigned is forced to be a multiple of contingent_row_size=5.
 
-        # We'll need a dictionary "m" to hold the new integer variables:
+        # Dictionary "m" will hold the new integer variables:
         m = {}
 
         for i in range(N):
@@ -257,18 +249,12 @@ def allocate_contingents(
                     # If y_{(i,c)}=0, no restriction is imposed (sum_c - 5*m_{(i,c)} can be anything).
                     BIG_M_2 = capacity  # Enough to cover all feasible sums
 
-                    solver.Add(
-                        sum_c - contingent_row_size * m[(i, c)] <= BIG_M_2 * (1 - y[(i, c)])
-                    )
-                    solver.Add(
-                        sum_c - contingent_row_size * m[(i, c)] >= -BIG_M_2 * (1 - y[(i, c)])
-                    )
+                    solver.Add(sum_c - contingent_row_size * m[(i, c)] <= BIG_M_2 * (1 - y[(i, c)]))
+                    solver.Add(sum_c - contingent_row_size * m[(i, c)] >= -BIG_M_2 * (1 - y[(i, c)]))
 
         # 4f) Enforce minimum capacity for each used contingent
         for c in range(max_contingents):
-            solver.Add(
-                sum(x[(i, c)] for i in range(N)) >= strict_min_capacity * z[c]
-            )
+            solver.Add(sum(x[(i, c)] for i in range(N)) >= strict_min_capacity * z[c])
 
         elapsed = time.time() - start_time
         print(colored(f"     ✓ Constraints added ({elapsed:.2f}s)", 'green'))
@@ -277,13 +263,16 @@ def allocate_contingents(
         print(colored("\n[4/5] Setting up objective function...", 'cyan'))
         
         # 5) Objective
-        # Minimize [ alpha * underfill_c + beta * mixing_c ]
-        #   underfill_c = capacity - sum_i x[i,c] for each used c
-        #   mixing_c = sum_i y[i,c] (# distinct groups in c)
-        objective_terms = []
+
         # The solver tries to minimize two things: 
         # 1) Underfilling: Having contingents smaller than the capacity (weighted by alpha)
         # 2) Mixing: Having multiple groups in a contingent (weighted by beta)
+        
+        # Minimize [ alpha * underfill_c + beta * mixing_c ]
+        #   underfill_c = capacity - sum_i x[i,c] for each used c
+        #   mixing_c = sum_i y[i,c] (# distinct groups in c)
+        
+        objective_terms = []
         for c in range(max_contingents):
             # underfill_c
             underfill_c = capacity * z[c] - solver.Sum([x[(i, c)] for i in range(N)])
@@ -324,7 +313,7 @@ def allocate_contingents(
                     cont_dict[groups[i]] = val
             solver_contingents.append(cont_dict)
 
-        # Combine pre-allocated with solver's results
+        # Combine pre-allocated contingents with solver's results
         all_contingents = pre_allocated_contingents + solver_contingents
 
         total_elapsed = time.time() - start_time
@@ -335,94 +324,6 @@ def allocate_contingents(
     except Exception as e:
         spinner.fail(colored(f'Error during optimization: {str(e)}', 'red'))
         raise e
-
-def create_contingent_ascii(total_people, row_size=5):
-    columns = math.ceil(total_people / row_size)
-
-    total_grid_size = row_size * columns
-    missing = total_grid_size - total_people
-    
-    seats = [[True for _ in range(columns)] for _ in range(row_size)]
-    
-    if missing > 0:
-        col_to_remove = 1
-        seats_removed = 0
-        
-        while seats_removed < missing and col_to_remove < columns:
-            # go from bottom row=4 (index=4) up to top row=0
-            for row in range(row_size-1, -1, -1):
-                if seats_removed >= missing:
-                    break  # we've removed all we need
-                # remove this seat (row, col_to_remove)
-                seats[row][col_to_remove] = False
-                seats_removed += 1
-            col_to_remove += 1
-    
-    result = []
-    for row in range(row_size):
-        row_str = []
-        for col in range(columns):
-            if seats[row][col]:
-                row_str.append("x")
-            else:
-                row_str.append(" ")
-        # Join them with a space
-        result.append(" ".join(row_str))
-    
-    return "\n".join(result)
-
-def create_parade_formation(contingents, contingent_row_size=5, capacity=90):
-    contingent_displays = []
-    for idx, cont in enumerate(contingents, start=1):
-        total_in_cont = sum(cont.values())
-        capacity_diff = abs(capacity - total_in_cont)
-        
-        formation = create_contingent_ascii(total_in_cont, contingent_row_size)
-
-        composition = ", ".join(f"{n} {g}" for g, n in cont.items())
-        header = f"C{idx} ({composition})"
-        
-        contingent_displays.append((capacity_diff, idx, header + "\n" + formation))
-    
-    contingent_displays.sort(key=lambda x: x[0])
-    sorted_displays = [x[2] for x in contingent_displays]
-
-    first_row_count = (len(contingents) + 1) // 2
-    first_row = sorted_displays[:first_row_count]
-    second_row = sorted_displays[first_row_count:]
-
-    first_row_lines = [display.split('\n') for display in first_row]
-    second_row_lines = [display.split('\n') for display in second_row]
-
-    result = []
-    
-    # First row
-    for line_idx in range(max(len(x) for x in first_row_lines)):
-        line_parts = []
-        for formation in first_row_lines:
-            if line_idx < len(formation):
-                line_parts.append(formation[line_idx].rjust(50))
-            else:
-                line_parts.append(" " * 50)
-
-        combined_line = "".join(line_parts).lstrip()
-        result.append(combined_line)
-    
-    result.append("")
-    
-    # Second row
-    for line_idx in range(max(len(x) for x in second_row_lines)):
-        line_parts = []
-        for formation in second_row_lines:
-            if line_idx < len(formation):
-                line_parts.append(formation[line_idx].rjust(50))
-            else:
-                line_parts.append(" " * 50)
-
-        combined_line = "".join(line_parts).lstrip()
-        result.append(combined_line)
-
-    return "\n".join(result)
 
 def main():
     print(colored("\n=== Parade Allocation Optimizer ===", 'yellow', attrs=['bold']))
@@ -541,14 +442,6 @@ def main():
         writer.writerow(['All Members Assigned', 'Yes' if True else 'No'])
 
     print("\nResults have been saved to:", csv_filename)
-
-    formation = create_parade_formation(contingents, contingent_row_size, capacity)
-    
-    # Write formation to file
-    with open('output/formation.txt', 'w') as f:
-        f.write(formation)
-    
-    print("\nFormation has been saved to: output/formation.txt")
 
 if __name__ == "__main__":
     main()
